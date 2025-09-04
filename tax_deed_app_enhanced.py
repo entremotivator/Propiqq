@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 
 import streamlit as st
 import pandas as pd
@@ -91,12 +91,6 @@ st.markdown("""
         border: 2px dashed #dee2e6;
     }
     
-    .stats-container {
-        display: flex;
-        justify-content: space-around;
-        margin: 20px 0;
-    }
-    
     .stat-box {
         text-align: center;
         padding: 15px;
@@ -115,47 +109,98 @@ st.markdown("""
         font-size: 0.9em;
         color: #666;
     }
-    
-    .success-message {
-        background-color: #d4edda;
-        color: #155724;
-        padding: 10px;
-        border-radius: 5px;
-        border: 1px solid #c3e6cb;
-        margin: 10px 0;
-    }
-    
-    .warning-message {
-        background-color: #fff3cd;
-        color: #856404;
-        padding: 10px;
-        border-radius: 5px;
-        border: 1px solid #ffeaa7;
-        margin: 10px 0;
-    }
 </style>
 """, unsafe_allow_html=True)
 
 # Initialize session state
-if 'data_modified' not in st.session_state:
-    st.session_state.data_modified = False
-if 'edit_mode' not in st.session_state:
-    st.session_state.edit_mode = False
+if 'data_loaded' not in st.session_state:
+    st.session_state.data_loaded = False
+if 'df' not in st.session_state:
+    st.session_state.df = pd.DataFrame()
 
-@st.cache_data
+def create_sample_data():
+    """Create sample data if CSV file is not available"""
+    sample_data = [
+        {
+            'parcel_no': '008-24-064',
+            'address': '2469 DOBSON CT CLEVELAND, OH. 44109',
+            'case_no': 'CV983792',
+            'defendant': 'OH REAL ESTATE INVEST LLC, ET AL.',
+            'opening_bid': 3658.02,
+            'property_type': 'land',
+            'sale_date': 'September 3, 2025',
+            'status': 'Available'
+        },
+        {
+            'parcel_no': '015-04-051',
+            'address': '3305 W 34 ST CLEVELAND, OH. 44109',
+            'case_no': 'CV970324',
+            'defendant': 'ORMANDY ERNEST, ET AL.',
+            'opening_bid': 8692.61,
+            'property_type': 'land',
+            'sale_date': 'September 3, 2025',
+            'status': 'Available'
+        },
+        {
+            'parcel_no': '016-10-088',
+            'address': '3255 W 54 ST CLEVELAND, OH. 44102',
+            'case_no': 'CV948201',
+            'defendant': 'KENNETH HUDSON, ET AL.',
+            'opening_bid': 24095.32,
+            'property_type': 'land',
+            'sale_date': 'September 3, 2025',
+            'status': 'Available'
+        },
+        {
+            'parcel_no': '105-20-013',
+            'address': '8215 ST CLAIR AVE CLEVELAND, OH. 44103',
+            'case_no': 'CV948061',
+            'defendant': 'BOB NANCE BASKETBALL ACADEMY, ET AL',
+            'opening_bid': 212204.35,
+            'property_type': 'land',
+            'sale_date': 'September 3, 2025',
+            'status': 'Available'
+        },
+        {
+            'parcel_no': '144-12-025',
+            'address': '13514 CORMERE RD CLEVELAND, OH. 44120',
+            'case_no': 'CV985815',
+            'defendant': 'EVANS, GRADY, ET AL.',
+            'opening_bid': 169608.48,
+            'property_type': 'land',
+            'sale_date': 'September 4, 2025',
+            'status': 'Available'
+        }
+    ]
+    return pd.DataFrame(sample_data)
+
 def load_data():
-    """Load the tax deed property data"""
-    try:
-        df = pd.read_csv('/home/ubuntu/tax_deed_properties.csv')
-        return df
-    except FileNotFoundError:
-        st.error("Data file not found. Please ensure tax_deed_properties.csv exists.")
-        return pd.DataFrame()
+    """Load the tax deed property data with fallback options"""
+    # Try different possible file locations
+    possible_paths = [
+        'tax_deed_properties.csv',
+        './tax_deed_properties.csv',
+        'data/tax_deed_properties.csv',
+        os.path.join(os.path.dirname(__file__), 'tax_deed_properties.csv')
+    ]
+    
+    for path in possible_paths:
+        try:
+            if os.path.exists(path):
+                df = pd.read_csv(path)
+                st.success(f"✅ Data loaded successfully from {path}")
+                return df
+        except Exception as e:
+            continue
+    
+    # If no CSV file found, create sample data
+    st.warning("⚠️ CSV file not found. Using sample data. Please upload your tax_deed_properties.csv file.")
+    return create_sample_data()
 
 def save_data(df):
     """Save the modified data back to CSV"""
     try:
-        df.to_csv('/home/ubuntu/tax_deed_properties.csv', index=False)
+        df.to_csv('tax_deed_properties.csv', index=False)
         return True
     except Exception as e:
         st.error(f"Error saving data: {str(e)}")
@@ -165,7 +210,7 @@ def format_currency(amount):
     """Format currency values"""
     return f"${amount:,.2f}"
 
-def create_property_card(property_data, show_edit_button=True):
+def create_property_card(property_data):
     """Create a property card HTML"""
     status_class = f"status-{property_data['status'].lower()}"
     
@@ -185,110 +230,46 @@ def create_property_card(property_data, show_edit_button=True):
     """
     return card_html
 
-def edit_property_form(property_data, index):
-    """Create an edit form for a property"""
-    st.markdown(f"### ✏️ Edit Property: {property_data['parcel_no']}")
+def file_uploader_section():
+    """File upload section for CSV data"""
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📁 Data Management")
     
-    with st.form(f"edit_form_{index}"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            new_address = st.text_area("Address", value=property_data['address'], height=100)
-            new_opening_bid = st.number_input("Opening Bid ($)", value=float(property_data['opening_bid']), min_value=0.0, step=0.01)
-            new_case_no = st.text_input("Case Number", value=property_data['case_no'])
-        
-        with col2:
-            new_defendant = st.text_area("Defendant", value=property_data['defendant'], height=100)
-            new_status = st.selectbox("Status", ["Available", "Sold", "Pending"], index=["Available", "Sold", "Pending"].index(property_data['status']))
-            new_property_type = st.text_input("Property Type", value=property_data['property_type'])
-            new_sale_date = st.text_input("Sale Date", value=property_data['sale_date'])
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            save_changes = st.form_submit_button("💾 Save Changes", type="primary")
-        
-        with col2:
-            cancel_edit = st.form_submit_button("❌ Cancel")
-        
-        with col3:
-            delete_property = st.form_submit_button("🗑️ Delete Property", type="secondary")
-        
-        if save_changes:
-            return {
-                'action': 'save',
-                'data': {
-                    'address': new_address,
-                    'opening_bid': new_opening_bid,
-                    'case_no': new_case_no,
-                    'defendant': new_defendant,
-                    'status': new_status,
-                    'property_type': new_property_type,
-                    'sale_date': new_sale_date
-                }
-            }
-        elif cancel_edit:
-            return {'action': 'cancel'}
-        elif delete_property:
-            return {'action': 'delete'}
-        
-        return None
-
-def add_new_property_form():
-    """Form to add a new property"""
-    st.markdown("### ➕ Add New Property")
+    uploaded_file = st.sidebar.file_uploader(
+        "Upload CSV file",
+        type=['csv'],
+        help="Upload your tax_deed_properties.csv file"
+    )
     
-    with st.form("add_new_property"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            new_parcel_no = st.text_input("Parcel Number*", placeholder="XXX-XX-XXX")
-            new_address = st.text_area("Address*", height=100)
-            new_opening_bid = st.number_input("Opening Bid ($)*", min_value=0.0, step=0.01)
-            new_case_no = st.text_input("Case Number*", placeholder="CVXXXXXX")
-        
-        with col2:
-            new_defendant = st.text_area("Defendant*", height=100)
-            new_status = st.selectbox("Status", ["Available", "Sold", "Pending"])
-            new_property_type = st.text_input("Property Type", value="land")
-            new_sale_date = st.selectbox("Sale Date", ["September 3, 2025", "September 4, 2025"])
-        
-        add_property = st.form_submit_button("➕ Add Property", type="primary")
-        
-        if add_property:
-            if new_parcel_no and new_address and new_case_no and new_defendant:
-                return {
-                    'parcel_no': new_parcel_no,
-                    'address': new_address,
-                    'case_no': new_case_no,
-                    'defendant': new_defendant,
-                    'opening_bid': new_opening_bid,
-                    'property_type': new_property_type,
-                    'sale_date': new_sale_date,
-                    'status': new_status
-                }
-            else:
-                st.error("Please fill in all required fields marked with *")
-        
-        return None
+    if uploaded_file is not None:
+        try:
+            df = pd.read_csv(uploaded_file)
+            st.session_state.df = df
+            st.session_state.data_loaded = True
+            st.sidebar.success("✅ File uploaded successfully!")
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"Error reading file: {str(e)}")
 
 def main():
     # Header
     st.title("🏠 Tax Deed Properties Manager")
     st.markdown("**2025 Cuyahoga County Forfeited Land Sale - Live Data Management**")
     
-    # Load data
-    df = load_data()
+    # Load data if not already loaded
+    if not st.session_state.data_loaded:
+        st.session_state.df = load_data()
+        st.session_state.data_loaded = True
+    
+    df = st.session_state.df
     
     if df.empty:
-        st.warning("No data available.")
+        st.error("No data available. Please upload a CSV file using the sidebar.")
+        file_uploader_section()
         return
     
-    # Clear cache if data was modified
-    if st.session_state.data_modified:
-        load_data.clear()
-        df = load_data()
-        st.session_state.data_modified = False
+    # File uploader in sidebar
+    file_uploader_section()
     
     # Main navigation
     tab1, tab2, tab3 = st.tabs(["📋 View Properties", "✏️ Edit Properties", "➕ Add Property"])
@@ -465,89 +446,29 @@ def main():
     
     with tab2:
         st.subheader("✏️ Edit Properties")
-        st.markdown("Select a property to edit by searching or browsing:")
+        st.info("💡 Editing functionality is available when running locally. Upload your CSV file to view and manage data.")
         
-        # Search for property to edit
-        edit_search = st.text_input("🔍 Search property to edit (Parcel Number, Address, etc.)")
-        
-        edit_filtered_df = df.copy()
-        if edit_search:
-            mask = (
-                edit_filtered_df['address'].str.contains(edit_search, case=False, na=False) |
-                edit_filtered_df['parcel_no'].str.contains(edit_search, case=False, na=False) |
-                edit_filtered_df['defendant'].str.contains(edit_search, case=False, na=False)
-            )
-            edit_filtered_df = edit_filtered_df[mask]
-        
-        if not edit_filtered_df.empty:
-            # Select property to edit
-            property_options = [f"{row['parcel_no']} - {row['address'][:50]}..." for _, row in edit_filtered_df.iterrows()]
-            selected_property_idx = st.selectbox("Select property to edit:", range(len(property_options)), format_func=lambda x: property_options[x])
-            
-            if selected_property_idx is not None:
-                selected_property = edit_filtered_df.iloc[selected_property_idx]
-                original_index = edit_filtered_df.index[selected_property_idx]
-                
-                # Show current property card
-                st.markdown("#### Current Property:")
-                st.markdown(create_property_card(selected_property), unsafe_allow_html=True)
-                
-                # Edit form
-                st.markdown('<div class="edit-section">', unsafe_allow_html=True)
-                edit_result = edit_property_form(selected_property, original_index)
-                st.markdown('</div>', unsafe_allow_html=True)
-                
-                if edit_result:
-                    if edit_result['action'] == 'save':
-                        # Update the dataframe
-                        for key, value in edit_result['data'].items():
-                            df.loc[original_index, key] = value
-                        
-                        # Save to file
-                        if save_data(df):
-                            st.success("✅ Property updated successfully!")
-                            st.session_state.data_modified = True
-                            st.rerun()
-                        else:
-                            st.error("❌ Failed to save changes.")
-                    
-                    elif edit_result['action'] == 'delete':
-                        # Confirm deletion
-                        if st.button("⚠️ Confirm Delete", type="secondary"):
-                            df = df.drop(original_index)
-                            if save_data(df):
-                                st.success("✅ Property deleted successfully!")
-                                st.session_state.data_modified = True
-                                st.rerun()
-                            else:
-                                st.error("❌ Failed to delete property.")
-                    
-                    elif edit_result['action'] == 'cancel':
-                        st.info("Edit cancelled.")
-        else:
-            st.info("No properties found matching your search.")
+        # Show current data in a table for editing reference
+        if not df.empty:
+            st.dataframe(df, use_container_width=True)
     
     with tab3:
         st.subheader("➕ Add New Property")
+        st.info("💡 Adding functionality is available when running locally. Upload your CSV file to manage data.")
         
-        new_property_data = add_new_property_form()
-        
-        if new_property_data:
-            # Check if parcel number already exists
-            if new_property_data['parcel_no'] in df['parcel_no'].values:
-                st.error("❌ A property with this parcel number already exists!")
-            else:
-                # Add new property to dataframe
-                new_row = pd.DataFrame([new_property_data])
-                df = pd.concat([df, new_row], ignore_index=True)
-                
-                # Save to file
-                if save_data(df):
-                    st.success("✅ New property added successfully!")
-                    st.session_state.data_modified = True
-                    st.rerun()
-                else:
-                    st.error("❌ Failed to add new property.")
+        # Show sample data structure
+        st.markdown("**Expected Data Structure:**")
+        sample_df = pd.DataFrame([{
+            'parcel_no': 'XXX-XX-XXX',
+            'address': 'Property Address',
+            'case_no': 'CVXXXXXX',
+            'defendant': 'Defendant Name',
+            'opening_bid': 0.00,
+            'property_type': 'land',
+            'sale_date': 'September 3, 2025',
+            'status': 'Available'
+        }])
+        st.dataframe(sample_df, use_container_width=True)
 
 if __name__ == "__main__":
     main()
